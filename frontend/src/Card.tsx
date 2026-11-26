@@ -37,6 +37,9 @@ const Card = (props: IProps): JSX.Element => {
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const height = props.smaller ? 95 : 120;
   const bounds = getCardBounds(height);
+  const marginRight = props.collapseRight
+    ? `var(--card-overlap-margin, -${bounds.width * 0.6}px)`
+    : "0";
 
   // Create a cache key for the card info based on card and trump
   const cacheKey = `${props.card}_${getTrumpKey(props.trump)}`;
@@ -214,9 +217,7 @@ const Card = (props: IProps): JSX.Element => {
     const nonSVG = (
       <div
         className={classNames("card", "unknown", props.className)}
-        style={{
-          marginRight: props.collapseRight ? `-${bounds.width * 0.6}px` : "0",
-        }}
+        style={{ marginRight }}
       >
         <CardCanvas
           card={props.card}
@@ -236,11 +237,7 @@ const Card = (props: IProps): JSX.Element => {
         <React.Suspense fallback={nonSVG}>
           <div
             className={classNames("card", "svg", "unknown", props.className)}
-            style={{
-              marginRight: props.collapseRight
-                ? `-${bounds.width * 0.6}px`
-                : "0",
-            }}
+            style={{ marginRight }}
           >
             <SvgCard
               fourColor={settings.fourColor}
@@ -286,9 +283,7 @@ const Card = (props: IProps): JSX.Element => {
         onClick={props.onClick}
         onMouseEnter={props.onMouseEnter}
         onMouseLeave={props.onMouseLeave}
-        style={{
-          marginRight: props.collapseRight ? `-${bounds.width * 0.6}px` : "0",
-        }}
+        style={{ marginRight }}
       >
         {label(bounds.height / 10)}
         {icon(bounds.height)}
@@ -323,11 +318,7 @@ const Card = (props: IProps): JSX.Element => {
             onClick={props.onClick}
             onMouseEnter={props.onMouseEnter}
             onMouseLeave={props.onMouseLeave}
-            style={{
-              marginRight: props.collapseRight
-                ? `-${bounds.width * 0.6}px`
-                : "0",
-            }}
+            style={{ marginRight }}
           >
             {label(height / 10)}
             {icon(height)}

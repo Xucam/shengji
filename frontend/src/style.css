@@ -284,12 +284,35 @@ button.normal {
   text-align: center;
 }
 
-.hand .unselected-cards {
+.hand .unselected-cards,
+.hand .selected-cards {
+  display: flex;
+  align-items: flex-end;
+  overflow-x: auto;
   padding: 0 10px;
 }
 
-.hand .selected-cards {
-  padding: 0 10px;
+.hand-card-group {
+  display: contents;
+}
+
+.hand-card-group .card {
+  --card-overlap-margin: 0px;
+  flex: 0 1 28px;
+  min-width: 16px;
+}
+
+/* Keep the SVG at full size while its flex item exposes only a strip. */
+.hand-card-group .card.svg > svg {
+  width: calc(120px * 212 / 329);
+}
+
+.hand-card-group + .hand-card-group .card:first-child {
+  margin-left: 5px;
+}
+
+.hand-card-group:last-child .card:last-child {
+  flex: none;
 }
 
 .next {

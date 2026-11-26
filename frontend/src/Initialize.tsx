@@ -437,9 +437,6 @@ interface IUncommonSettings {
   setShouldRevealKittyAtEndOfGame: (
     v: React.ChangeEvent<HTMLSelectElement>,
   ) => void;
-  setFirstLandlordSelectionPolicy: (
-    v: React.ChangeEvent<HTMLSelectElement>,
-  ) => void;
   setGameStartPolicy: (v: React.ChangeEvent<HTMLSelectElement>) => void;
   setGameShadowingPolicy: (v: React.ChangeEvent<HTMLSelectElement>) => void;
   setKittyBidPolicy: (v: React.ChangeEvent<HTMLSelectElement>) => void;
@@ -488,22 +485,6 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
       </div>
       <div>
         <label>
-          Landlord selection from bid:{" "}
-          <select
-            value={props.state.propagated.first_landlord_selection_policy}
-            onChange={props.setFirstLandlordSelectionPolicy}
-          >
-            <option value="ByWinningBid">
-              Winning bid decides both landlord and trump
-            </option>
-            <option value="ByFirstBid">
-              First bid decides landlord, winning bid decides trump
-            </option>
-          </select>
-        </label>
-      </div>
-      <div>
-        <label>
           Trump policy for cards revealed from the bottom:{" "}
           <select
             value={props.state.propagated.kitty_bid_policy}
@@ -520,7 +501,7 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
         <label>
           Bid policy:{" "}
           <select
-            value={props.state.propagated.bid_policy}
+            value={props.state.propagated.bid_policy ?? "GreaterLength"}
             onChange={props.setBidPolicy}
           >
             <option value="JokerOrHigherSuit">
@@ -531,7 +512,7 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
               Joker bids to outbid non-joker bids with the same number of cards
             </option>
             <option value="GreaterLength">
-              All bids must have more cards than the previous bids
+              All bids must have more cards than the previous bids (default)
             </option>
           </select>
         </label>
@@ -559,7 +540,7 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
         <label>
           Joker bid policy:{" "}
           <select
-            value={props.state.propagated.joker_bid_policy}
+            value={props.state.propagated.joker_bid_policy ?? "Disabled"}
             onChange={props.setJokerBidPolicy}
           >
             <option value="BothTwoOrMore">
@@ -571,7 +552,9 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
             <option value="LJNumDecksHJNumDecksLessOne">
               All the low jokers or all but one high joker to bid no trump
             </option>
-            <option value="Disabled">No trump / joker bids disabled</option>
+            <option value="Disabled">
+              No trump / joker bids disabled (default)
+            </option>
           </select>
         </label>
       </div>
@@ -585,7 +568,9 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
           <label>
             Bomb cards (4+ identical cards beat any play of the same size):{" "}
             <select
-              value={props.state.propagated.bomb_policy ?? "NoBombs"}
+              value={
+                props.state.propagated.bomb_policy ?? "AllowBombsSuitFollowing"
+              }
               onChange={props.setBombPolicy}
             >
               <option value="NoBombs">Disabled</option>
@@ -613,7 +598,7 @@ const UncommonSettings = (props: IUncommonSettings): JSX.Element => {
                 props.setCompoundFormats({
                   rainbows:
                     props.state.propagated.compound_formats?.rainbows ??
-                    (props.state.propagated.num_decks ?? 2) * 2 + 1,
+                    (props.state.propagated.num_decks ?? 4) * 2 + 1,
                 });
               } else {
                 props.setCompoundFormats({ rainbows: null });
@@ -800,9 +785,6 @@ const Initialize = (props: IProps): JSX.Element => {
 
   const setFriendSelectionPolicy = onSelectString("SetFriendSelectionPolicy");
   const setMultipleJoinPolicy = onSelectString("SetMultipleJoinPolicy");
-  const setFirstLandlordSelectionPolicy = onSelectString(
-    "SetFirstLandlordSelectionPolicy",
-  );
   const setBidPolicy = onSelectString("SetBidPolicy");
   const setBidReinforcementPolicy = onSelectString("SetBidReinforcementPolicy");
   const setJokerBidPolicy = onSelectString("SetJokerBidPolicy");
@@ -903,7 +885,7 @@ const Initialize = (props: IProps): JSX.Element => {
     props.state.propagated.num_decks !== null &&
     props.state.propagated.num_decks > 0
       ? props.state.propagated.num_decks
-      : Math.max(Math.floor(props.state.propagated.players.length / 2), 1);
+      : 4;
   const decks = [...(props.state.propagated.special_decks || [])];
   while (decks.length < decksEffective) {
     decks.push({
@@ -1388,7 +1370,6 @@ const Initialize = (props: IProps): JSX.Element => {
           setJokerBidPolicy={setJokerBidPolicy}
           setShouldRevealKittyAtEndOfGame={setShouldRevealKittyAtEndOfGame}
           setHideThrowHaltingPlayer={setHideThrowHaltingPlayer}
-          setFirstLandlordSelectionPolicy={setFirstLandlordSelectionPolicy}
           setGameStartPolicy={setGameStartPolicy}
           setGameShadowingPolicy={setGameShadowingPolicy}
           setKittyBidPolicy={setKittyBidPolicy}

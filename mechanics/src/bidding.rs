@@ -9,8 +9,8 @@ use crate::types::{Card, PlayerID, Rank};
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub enum BidPolicy {
     JokerOrHigherSuit,
-    #[default]
     JokerOrGreaterLength,
+    #[default]
     GreaterLength,
 }
 
@@ -18,10 +18,10 @@ crate::impl_slog_value!(BidPolicy);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub enum JokerBidPolicy {
-    #[default]
     BothTwoOrMore,
     BothNumDecks,
     LJNumDecksHJNumDecksLessOne,
+    #[default]
     Disabled,
 }
 

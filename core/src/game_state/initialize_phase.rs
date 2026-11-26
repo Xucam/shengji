@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use shengji_mechanics::types::{Card, Number, PlayerID, Rank, ALL_SUITS};
 
-use crate::settings::{GameMode, GameModeSettings, GameStartPolicy, PropagatedState};
+use crate::settings::{
+    GameMode, GameModeSettings, GameStartPolicy, GameVisibility, PropagatedState,
+};
 
 use crate::game_state::DrawPhase;
 
@@ -19,9 +21,9 @@ pub struct InitializePhase {
 
 impl InitializePhase {
     pub fn new() -> Self {
-        Self {
-            propagated: PropagatedState::default(),
-        }
+        let mut propagated = PropagatedState::default();
+        propagated.game_visibility = GameVisibility::Public;
+        Self { propagated }
     }
 
     pub fn from_propagated(propagated: PropagatedState) -> Self {

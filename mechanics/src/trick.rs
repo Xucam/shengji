@@ -71,12 +71,12 @@ crate::impl_slog_value!(ThrowEvaluationPolicy);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub enum BombPolicy {
-    #[default]
     NoBombs,
     /// Bombs allowed; a bomb can be played regardless of suit when following.
     AllowBombs,
     /// Bombs allowed, but standard suit-following rules apply: a bomb must be
     /// in the led suit, or a trump bomb if the player is void in the led suit.
+    #[default]
     AllowBombsSuitFollowing,
 }
 

@@ -21,11 +21,11 @@ const NumDecksSelector = (props: IProps): JSX.Element => {
       <label>
         Number of decks:{" "}
         <select
-          value={props.numDecks === null ? "" : props.numDecks}
+          value={props.numDecks == null ? "" : props.numDecks}
           onChange={handleChange}
         >
-          <option value="">default</option>
-          {ArrayUtils.range(props.numPlayers, (idx) => {
+          <option value="">default (4 decks)</option>
+          {ArrayUtils.range(Math.max(4, props.numPlayers + 1), (idx) => {
             const val = idx + 1;
             return (
               <option value={val} key={idx}>

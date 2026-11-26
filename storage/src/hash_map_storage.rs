@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 
 use async_trait::async_trait;
 use slog::{debug, info, Logger};
@@ -184,9 +185,11 @@ impl<S: State> Storage<S, ()> for HashMapStorage<S> {
             false
         };
         if should_cleanup_key {
-            info!(self.logger, "Cleaning up state"; "key" => stringify(&key), "subscriber_id" => subscriber_id);
+            info!(self.logger, "Retaining room for reconnect"; "key" => stringify(&key), "subscriber_id" => subscriber_id);
             s.remove(&key);
-            m.remove(&key);
+            if let Some((_, last_active)) = m.get_mut(&key) {
+                *last_active = Instant::now();
+            }
         }
     }
 
@@ -200,24 +203,25 @@ impl<S: State> Storage<S, ()> for HashMapStorage<S> {
         Ok(*n)
     }
 
-    #[allow(clippy::if_same_then_else)]
     async fn prune(self) {
-        // We walk through the key-space and remove any states which are
-        // not updated in at least 2 hours.
-        // We also remove any subscribers which have disconnected, and
-        // subscribers for whom the game is no longer connected.
+        // Active rooms remain available even if no game action has occurred.
+        // Empty rooms survive network interruptions for thirty minutes.
         let mut m = self.state_map.lock().await;
         let mut s = self.subscribers.lock().await;
-        let mut to_prune = vec![];
-        for (k, (_, t)) in m.iter() {
-            if t.elapsed() > Duration::from_secs(2 * 3600) {
-                to_prune.push(k.to_vec());
-            } else if s.get(k).map(|ss| ss.is_empty()).unwrap_or(true)
-                && t.elapsed() > Duration::from_secs(3600)
-            {
-                to_prune.push(k.to_vec());
-            }
+        for subscribers in s.values_mut() {
+            subscribers.retain(|_, sender| !sender.is_closed());
         }
+        s.retain(|_, subscribers| !subscribers.is_empty());
+        let to_prune: Vec<_> = m
+            .iter()
+            .filter_map(|(key, (_, last_active))| {
+                if !s.contains_key(key) && last_active.elapsed() >= Duration::from_secs(30 * 60) {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         for k in &to_prune {
             m.remove(k);
             s.remove(k);

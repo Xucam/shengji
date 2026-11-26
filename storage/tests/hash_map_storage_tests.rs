@@ -243,3 +243,44 @@ async fn test_execute_operation() {
     let num_messages = handle.await.unwrap();
     assert_eq!(num_messages, num_expected_messages);
 }
+
+#[tokio::test(start_paused = true)]
+async fn disconnected_room_survives_and_rejoins_with_the_same_state() {
+    let s: HashMapStorage<VersionedState> = HashMapStorage::new(make_logger());
+    s.clone().put(vs!("reconnect", 42)).await.unwrap();
+    let _first = s.clone().subscribe(b"reconnect".to_vec(), 1).await.unwrap();
+    // A long game must still receive the full grace period after disconnect.
+    tokio::time::advance(std::time::Duration::from_secs(3 * 3600)).await;
+    s.clone().prune().await;
+    assert_eq!(s.clone().stats().await.unwrap(), (1, 1));
+    s.clone().unsubscribe(b"reconnect".to_vec(), 1).await;
+    tokio::time::advance(std::time::Duration::from_secs(29 * 60)).await;
+    s.clone().prune().await;
+    assert_eq!(
+        s.clone().get(b"reconnect".to_vec()).await.unwrap(),
+        vs!("reconnect", 42)
+    );
+    let _second = s.clone().subscribe(b"reconnect".to_vec(), 2).await.unwrap();
+    assert_eq!(s.clone().stats().await.unwrap(), (1, 1));
+    assert_eq!(
+        s.clone().get(b"reconnect".to_vec()).await.unwrap(),
+        vs!("reconnect", 42)
+    );
+    tokio::time::advance(std::time::Duration::from_secs(60 * 60)).await;
+    s.clone().prune().await;
+    assert_eq!(s.clone().stats().await.unwrap(), (1, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn disconnected_room_expires_after_thirty_minutes() {
+    let s: HashMapStorage<VersionedState> = HashMapStorage::new(make_logger());
+    s.clone().put(vs!("expire", 1)).await.unwrap();
+    let _subscription = s.clone().subscribe(b"expire".to_vec(), 1).await.unwrap();
+    s.clone().unsubscribe(b"expire".to_vec(), 1).await;
+    tokio::time::advance(std::time::Duration::from_secs(30 * 60 - 1)).await;
+    s.clone().prune().await;
+    assert_eq!(s.clone().stats().await.unwrap(), (1, 0));
+    tokio::time::advance(std::time::Duration::from_secs(1)).await;
+    s.clone().prune().await;
+    assert_eq!(s.clone().stats().await.unwrap(), (0, 0));
+}

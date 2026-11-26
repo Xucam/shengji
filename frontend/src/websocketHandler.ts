@@ -93,12 +93,13 @@ let lastReadyChecked = performance.now();
 const readyCheckHandler = (
   message: GameMessage,
   send: (msg: any) => void,
+  playSound: boolean,
 ): void => {
   if ("ReadyCheck" in message) {
     const now = performance.now();
     // Rate-limit beeps to prevent annoyance.
     if (now - lastReadyChecked >= 1000) {
-      beep(3, 261.63, 200);
+      if (playSound) beep(3, 261.63, 200);
       lastReadyChecked = now;
       if (confirm("Are you ready to start the game?")) {
         send("Ready");
@@ -182,8 +183,8 @@ const composedHandlers = (
     partials = { ...partials, ...partial };
     state = { ...state, ...partial };
   });
-  beepHandler(message);
-  readyCheckHandler(message, send);
+  if (state.settings.playAlertSounds) beepHandler(message);
+  readyCheckHandler(message, send, state.settings.playAlertSounds);
   return partials;
 };
 

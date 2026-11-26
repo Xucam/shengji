@@ -86,7 +86,7 @@ impl Default for GameScoringParameters {
         Self {
             step_size_per_deck: 20,
             num_steps_to_non_landlord_turnover: 2,
-            deadzone_size: 1,
+            deadzone_size: 0,
             truncate_zero_crossing_window: true,
             step_adjustments: HashMap::new(),
             bonus_level_policy: BonusLevelPolicy::default(),

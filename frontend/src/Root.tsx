@@ -6,7 +6,6 @@ import Draw from "./Draw";
 import Exchange from "./Exchange";
 import JoinRoom from "./JoinRoom";
 import { AppStateContext } from "./AppStateProvider";
-import { TimerContext } from "./TimerProvider";
 import Credits from "./Credits";
 import Chat from "./Chat";
 import Play from "./Play";
@@ -20,7 +19,6 @@ const Confetti = React.lazy(async () => await import("./Confetti"));
 
 const Root = (): JSX.Element => {
   const { state, updateState } = React.useContext(AppStateContext);
-  const timerContext = React.useContext(TimerContext);
 
   const [previousHeaderMessages, setPreviousHeaderMessages] = React.useState<
     string[]
@@ -122,10 +120,7 @@ const Root = (): JSX.Element => {
               <Draw
                 state={state.gameState.Draw}
                 playDrawCardSound={state.settings.playDrawCardSound}
-                autodrawSpeedMs={state.settings.autodrawSpeedMs}
                 name={state.name}
-                setTimeout={timerContext.setTimeout}
-                clearTimeout={timerContext.clearTimeout}
               />
             ) : null}
             {"Exchange" in state.gameState ? (
@@ -156,9 +151,9 @@ const Root = (): JSX.Element => {
     return (
       <>
         <p>
-          It looks like you got disconnected from the server, please refresh! If
-          the game is still ongoing, you should be able to re-join with the same
-          name and pick up where you left off.
+          {state.connectionStopped
+            ? "This session was ended. Refresh to join again."
+            : "Connection lost. Reconnecting to your game…"}
         </p>
       </>
     );

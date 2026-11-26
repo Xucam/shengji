@@ -35,6 +35,7 @@ use shengji_mechanics::types::FULL_DECK;
 use shengji_types::ZSTD_ZSTD_DICT;
 use storage::{HashMapStorage, Storage};
 
+mod dealing;
 mod serving_types;
 mod shengji_handler;
 mod state_dump;
@@ -118,6 +119,8 @@ async fn main() -> Result<(), anyhow::Error> {
         backend_storage.clone(),
         stats.clone(),
     ));
+
+    tokio::task::spawn(dealing::run(backend_storage.clone()));
 
     let app = Router::new()
         .route("/api", get(handle_websocket))
@@ -252,50 +255,114 @@ async fn handle_websocket(
     Extension(backend_storage): Extension<HashMapStorage<VersionedGame>>,
     Extension(stats): Extension<Arc<Mutex<InMemoryStats>>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|ws| {
+    ws.on_upgrade(|ws| async move {
         let ws_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
         let logger = ROOT_LOGGER.new(o!("ws_id" => ws_id));
         info!(logger, "Websocket connection initialized");
-        // Split the socket into a sender and receive of messages.
         let (mut user_ws_tx, mut user_ws_rx) = ws.split();
-
-        // Use an unbounded channel to handle buffering and flushing of messages
-        // to the websocket...
-        let logger_ = logger.clone();
+        let (closed_tx, closed_rx) = tokio::sync::watch::channel(false);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        tokio::task::spawn(async move {
-            while let Some(v) = rx.recv().await {
-                let _ = user_ws_tx.send(Message::Binary(v)).await;
-            }
-            debug!(logger_, "Ending tx task");
-        });
+        let (heartbeat_tx, mut heartbeats) = mpsc::channel::<()>(1);
 
-        // And another channel to receive messages from the websocket
-        let logger_ = logger.clone();
-        let (tx2, rx2) = mpsc::unbounded_channel();
+        let writer_logger = logger.clone();
+        let writer_closed_tx = closed_tx.clone();
+        let mut writer_closed_rx = closed_rx.clone();
         tokio::task::spawn(async move {
-            while let Some(result) = user_ws_rx.next().await {
+            let mut ping = tokio::time::interval(tokio::time::Duration::from_secs(25));
+            ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                let message = tokio::select! {
+                    _ = writer_closed_rx.changed() => break,
+                    value = rx.recv() => match value {
+                        Some(bytes) => Message::Binary(bytes),
+                        None => break,
+                    },
+                    value = heartbeats.recv() => match value {
+                        Some(()) => Message::Text("\"Heartbeat\"".to_owned()),
+                        None => break,
+                    },
+                    _ = ping.tick() => Message::Ping(vec![]),
+                };
+                let result = tokio::select! {
+                    _ = writer_closed_rx.changed() => break,
+                    result = tokio::time::timeout(
+                        tokio::time::Duration::from_secs(60), user_ws_tx.send(message)
+                    ) => result,
+                };
                 match result {
-                    Ok(Message::Close(_)) => {
+                    Ok(Ok(())) => (),
+                    Ok(Err(error)) => {
+                        error!(writer_logger, "Websocket send failed"; "error" => format!("{error:?}"));
                         break;
                     }
-                    Ok(Message::Binary(r)) => {
-                        let _ = tx2.send(r);
-                    }
-                    Ok(Message::Text(r)) => {
-                        let _ = tx2.send(r.into_bytes());
-                    }
-                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => (),
-                    Err(e) => {
-                        error!(logger_, "Failed to fetch message"; "error" => format!("{e:?}"));
+                    Err(_) => {
+                        info!(writer_logger, "Websocket send timed out");
                         break;
                     }
                 }
             }
-            debug!(logger_, "Ending rx task");
+            let _ = writer_closed_tx.send(true);
+            let _ = tokio::time::timeout(
+                tokio::time::Duration::from_secs(1), user_ws_tx.close()
+            ).await;
+            debug!(writer_logger, "Ending tx task");
         });
 
-        shengji_handler::entrypoint(tx, rx2, ws_id, logger, backend_storage, stats)
+        let reader_logger = logger.clone();
+        let reader_closed_tx = closed_tx.clone();
+        let mut reader_closed_rx = closed_rx;
+        let (tx2, rx2) = mpsc::unbounded_channel();
+        tokio::task::spawn(async move {
+            loop {
+                let incoming = tokio::select! {
+                    _ = reader_closed_rx.changed() => break,
+                    result = tokio::time::timeout(
+                        tokio::time::Duration::from_secs(90), user_ws_rx.next()
+                    ) => match result {
+                        Ok(Some(result)) => result,
+                        Ok(None) => {
+                            info!(reader_logger, "Websocket stream ended");
+                            break;
+                        }
+                        Err(_) => {
+                            info!(reader_logger, "Websocket receive timed out");
+                            break;
+                        }
+                    },
+                };
+                match incoming {
+                    Ok(Message::Close(frame)) => {
+                        let (code, reason) = frame
+                            .map(|frame| (Some(frame.code), frame.reason.into_owned()))
+                            .unwrap_or_default();
+                        info!(reader_logger, "Websocket close received";
+                            "code" => code, "reason" => reason);
+                        break;
+                    }
+                    Ok(Message::Text(text)) if text == "\"Heartbeat\"" => {
+                        // Transport-level response also works before joining a room.
+                        if heartbeat_tx.send(()).await.is_err() { break; }
+                    }
+                    Ok(Message::Binary(bytes)) => {
+                        if tx2.send(bytes).is_err() { break; }
+                    }
+                    Ok(Message::Text(text)) => {
+                        if tx2.send(text.into_bytes()).is_err() { break; }
+                    }
+                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => (),
+                    Err(error) => {
+                        error!(reader_logger, "Failed to fetch message"; "error" => format!("{error:?}"));
+                        break;
+                    }
+                }
+            }
+            let _ = reader_closed_tx.send(true);
+            debug!(reader_logger, "Ending rx task");
+        });
+
+        shengji_handler::entrypoint(tx, rx2, ws_id, logger, backend_storage, stats).await;
+        // Any session, reader, or writer ending cancels the other socket tasks.
+        let _ = closed_tx.send(true);
     })
 }
 

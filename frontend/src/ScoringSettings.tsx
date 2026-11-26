@@ -320,7 +320,7 @@ export const GameScoringSettings = (props: IProps): JSX.Element => {
                 <option key={idx}>{idx}</option>
               ))}
           </select>{" "}
-          (default: 1)
+          (default: 0)
         </div>
         <div>
           <label>Number of steps for the attacking team to win: </label>

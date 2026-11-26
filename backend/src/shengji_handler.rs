@@ -23,7 +23,11 @@ pub async fn entrypoint<S: Storage<VersionedGame, E>, E: std::fmt::Debug + Send>
     backend_storage: S,
     stats: Arc<Mutex<InMemoryStats>>,
 ) {
-    let _ = handle_user_connected(tx, rx, ws_id, logger, backend_storage, stats).await;
+    if let Err(error) =
+        handle_user_connected(tx, rx, ws_id, logger.clone(), backend_storage, stats).await
+    {
+        info!(logger, "Websocket session ended"; "reason" => format!("{error:?}"));
+    }
 }
 
 async fn send_to_user(
@@ -408,6 +412,9 @@ async fn handle_user_action<S: Storage<VersionedGame, E>, E: Send>(
             )
             .await;
         }
+        // Older clients may still send per-card requests. The server timer
+        // exclusively controls the deal so these cannot speed up a round.
+        UserMessage::Action(shengji_core::interactive::Action::DrawCard) => {}
         UserMessage::Action(action) => {
             execute_operation(
                 ws_id,

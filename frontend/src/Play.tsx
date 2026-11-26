@@ -25,6 +25,7 @@ import { WebsocketContext } from "./WebsocketProvider";
 import { SettingsContext } from "./AppStateProvider";
 import { useEngine } from "./useEngine";
 import InlineCard from "./InlineCard";
+import { isConsecutiveTupleLead } from "./util/leadRules";
 import {
   prefillCardInfoCache,
   prefillExplainScoringCache,
@@ -71,7 +72,13 @@ const Play = (props: IProps): JSX.Element => {
         tractorRequirements,
         newSelected,
       );
-      setGrouping(plays);
+      setGrouping(
+        props.playPhase.trick.played_cards.length === 0
+          ? plays.filter((play) =>
+              isConsecutiveTupleLead(newSelected, play.grouping),
+            )
+          : plays,
+      );
     } catch (error) {
       console.error("Error finding viable plays:", error);
       setGrouping([]);
@@ -79,6 +86,12 @@ const Play = (props: IProps): JSX.Element => {
   };
 
   const playCards = (): void => {
+    if (
+      grouping.length === 0 ||
+      (props.playPhase.trick.played_cards.length === 0 &&
+        !isConsecutiveTupleLead(selected, grouping[0].grouping))
+    )
+      return;
     send({ Action: { PlayCardsWithHint: [selected, grouping[0].grouping] } });
     setSelected([]);
     setGrouping([]);
@@ -198,7 +211,10 @@ const Play = (props: IProps): JSX.Element => {
         .then((playable) => {
           // In order to play the first trick, the grouping must be disambiguated!
           if (lastPlay === undefined) {
-            playable = playable && grouping.length === 1;
+            playable =
+              playable &&
+              grouping.length === 1 &&
+              isConsecutiveTupleLead(selected, grouping[0].grouping);
           }
           playable = playable && !playPhase.game_ended_early;
           setCanPlay(playable);
@@ -384,6 +400,14 @@ const Play = (props: IProps): JSX.Element => {
         unsetAutoPlayWhenWinnerChanges={props.unsetAutoPlayWhenWinnerChanges}
         isCurrentPlayerTurn={isCurrentPlayerTurn}
       />
+      {lastPlay === undefined &&
+        selected.length > 1 &&
+        grouping.length === 0 && (
+          <p>
+            Multi-card leads must use consecutive ranks with a shared tuple size
+            of at least 2.
+          </p>
+        )}
       {playPhase.propagated.play_takeback_policy === "AllowPlayTakeback" && (
         <button className="big" onClick={takeBackCards} disabled={!canTakeBack}>
           Take back last play

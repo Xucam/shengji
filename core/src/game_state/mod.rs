@@ -803,6 +803,8 @@ mod tests {
     #[test]
     fn test_bid_sequence() {
         let mut init = InitializePhase::new();
+        init.set_joker_bid_policy(shengji_mechanics::bidding::JokerBidPolicy::Disabled)
+            .unwrap();
         let p1 = init.add_player("p1".into()).unwrap().0;
         let p2 = init.add_player("p2".into()).unwrap().0;
         let p3 = init.add_player("p3".into()).unwrap().0;
@@ -810,6 +812,10 @@ mod tests {
         let mut draw = init.start(PlayerID(0)).unwrap();
         // Hackily ensure that everyone can bid.
         *draw.deck_mut() = vec![
+            cards::S_2,
+            Card::SmallJoker,
+            Card::BigJoker,
+            cards::H_2,
             cards::S_2,
             Card::SmallJoker,
             Card::BigJoker,
@@ -829,17 +835,25 @@ mod tests {
         draw.draw_card(p2).unwrap();
         draw.draw_card(p3).unwrap();
         draw.draw_card(p4).unwrap();
+        draw.draw_card(p1).unwrap();
+        draw.draw_card(p2).unwrap();
+        draw.draw_card(p3).unwrap();
+        draw.draw_card(p4).unwrap();
 
         assert!(draw.bid(p1, cards::H_2, 1));
         assert!(draw.bid(p1, cards::H_2, 2));
-        assert!(draw.bid(p3, Card::SmallJoker, 2));
-        assert!(draw.bid(p2, Card::BigJoker, 2));
+        assert!(!draw.bid(p3, Card::SmallJoker, 3));
+        assert!(!draw.bid(p2, Card::BigJoker, 3));
+        assert!(draw.bid(p4, cards::S_2, 3));
         assert!(!draw.bid(p1, cards::H_2, 2));
     }
 
     #[test]
     fn test_kitty_stealing_bid_sequence() {
         let mut init = InitializePhase::new();
+        init.set_joker_bid_policy(shengji_mechanics::bidding::JokerBidPolicy::Disabled)
+            .unwrap();
+        init.set_game_mode(GameModeSettings::Tractor).unwrap();
         let p1 = init.add_player("p1".into()).unwrap().0;
         let p2 = init.add_player("p2".into()).unwrap().0;
         let p3 = init.add_player("p3".into()).unwrap().0;
@@ -857,9 +871,17 @@ mod tests {
             Card::SmallJoker,
             Card::BigJoker,
             cards::H_2,
+            cards::S_2,
+            Card::SmallJoker,
+            Card::BigJoker,
+            cards::H_2,
         ];
         *draw.position_mut() = 0;
 
+        draw.draw_card(p1).unwrap();
+        draw.draw_card(p2).unwrap();
+        draw.draw_card(p3).unwrap();
+        draw.draw_card(p4).unwrap();
         draw.draw_card(p1).unwrap();
         draw.draw_card(p2).unwrap();
         draw.draw_card(p3).unwrap();
@@ -873,13 +895,12 @@ mod tests {
         let mut exchange = draw.advance(p1).unwrap();
         exchange.finalize(p1).unwrap();
         assert!(exchange.bid(p1, cards::H_2, 2));
-        assert!(exchange.bid(p3, Card::SmallJoker, 2));
-        exchange.pick_up_cards(p3).unwrap();
+        assert!(!exchange.bid(p3, Card::SmallJoker, 3));
+        assert!(!exchange.bid(p2, Card::BigJoker, 3));
+        assert!(exchange.bid(p4, cards::S_2, 3));
+        exchange.pick_up_cards(p4).unwrap();
         exchange.advance(p1).unwrap_err();
-        exchange.finalize(p3).unwrap();
-        assert!(exchange.bid(p2, Card::BigJoker, 2));
-        exchange.pick_up_cards(p2).unwrap();
-        exchange.finalize(p2).unwrap();
+        exchange.finalize(p4).unwrap();
         assert!(!exchange.bid(p1, cards::H_2, 2));
         exchange.advance(p1).unwrap();
     }
@@ -889,6 +910,7 @@ mod tests {
         use cards::*;
 
         let mut init = InitializePhase::new();
+        init.set_game_mode(GameModeSettings::Tractor).unwrap();
         init.set_trick_draw_policy(
             shengji_mechanics::trick::TrickDrawPolicy::LongerTuplesProtected,
         )
@@ -926,10 +948,12 @@ mod tests {
 
         let exchange = draw.advance(p1).unwrap();
         let mut play = exchange.advance(p1).unwrap();
-        play.play_cards(p1, &[S_9, S_9, S_10, S_10, S_K]).unwrap();
-        play.play_cards(p2, &[S_3, S_3, S_5, S_5, S_7]).unwrap();
-        play.play_cards(p3, &[S_3, S_5, S_10, S_J, S_Q]).unwrap();
-        play.play_cards(p4, &[S_6, S_6, S_6, C_8, C_9]).unwrap();
+        // A tractor plus a singleton is not a legal lead under the house rule.
+        assert!(play.play_cards(p1, &[S_9, S_9, S_10, S_10, S_K]).is_err());
+        play.play_cards(p1, &[S_9, S_9, S_10, S_10]).unwrap();
+        play.play_cards(p2, &[S_3, S_3, S_5, S_5]).unwrap();
+        play.play_cards(p3, &[S_3, S_5, S_10, S_J]).unwrap();
+        play.play_cards(p4, &[S_6, S_6, S_6, C_8]).unwrap();
     }
 
     #[test]
@@ -946,6 +970,8 @@ mod tests {
             let p2 = init.add_player("p2".into()).unwrap().0;
             let p3 = init.add_player("p3".into()).unwrap().0;
             let p4 = init.add_player("p4".into()).unwrap().0;
+            // Friend-selection cases model a later round with p2 eligible for pickup.
+            init.propagated_mut().previous_winners = vec![p2];
             init.set_landlord(Some(p2)).unwrap();
             init.set_rank(p2, Rank::Number(bid.number().unwrap()))
                 .unwrap();
@@ -1029,6 +1055,10 @@ mod tests {
         let p5 = init.add_player("p5".into()).unwrap().0;
         let p6 = init.add_player("p6".into()).unwrap().0;
 
+        // This recorded deal and its expected score use three decks.
+        init.set_num_decks(Some(3)).unwrap();
+        // This recorded round already has an eligible landlord from the previous game.
+        init.propagated_mut().previous_winners = vec![p2];
         init.set_landlord(Some(p2)).unwrap();
         init.set_rank(p2, Rank::Number(Number::Seven)).unwrap();
 
@@ -1379,9 +1409,16 @@ mod tests {
         play.play_cards(p4, &[C_Q]).unwrap();
         play.finish_trick().unwrap();
 
-        if let Ok((phase, _, _msgs)) = play.finish_game() {
-            assert_eq!(phase.propagated().landlord, Some(p3));
-        };
+        let (phase, landlord_won, _msgs) = play.finish_game().unwrap();
+        assert_eq!(phase.propagated().landlord, Some(p3));
+        let winners: Vec<_> = play
+            .propagated()
+            .players
+            .iter()
+            .filter(|p| landlord_won == play.landlords_team().contains(&p.id))
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(phase.propagated().previous_winners, winners);
     }
 
     #[test]

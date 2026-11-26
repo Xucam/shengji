@@ -2,7 +2,6 @@ import { State, combineState } from "../State";
 import {
   booleanLocalStorageState,
   JSONLocalStorageState,
-  nullableNumberLocalStorageState,
   stringLocalStorageState,
 } from "../localStorageState";
 
@@ -12,6 +11,7 @@ export interface Settings {
   showCardLabels: boolean;
   showLastTrick: boolean;
   beepOnTurn: boolean;
+  playAlertSounds: boolean;
   reverseCardOrder: boolean;
   unsetAutoPlayWhenWinnerChanges: boolean;
   showTrickInPlayerOrder: boolean;
@@ -26,7 +26,6 @@ export interface Settings {
   showPointsAboveGame: boolean;
   pointCardIcon: string;
   trumpCardIcon: string;
-  autodrawSpeedMs: number | null;
 }
 
 export interface ISuitOverrides {
@@ -39,14 +38,16 @@ export interface ISuitOverrides {
   "🂠"?: string;
 }
 
-const fourColor: State<boolean> = booleanLocalStorageState("four_color");
+const fourColor: State<boolean> = booleanLocalStorageState("four_color", true);
 const darkMode: State<boolean> = booleanLocalStorageState("dark_mode");
-const svgCards: State<boolean> = booleanLocalStorageState("svg_cards");
+const svgCards: State<boolean> = booleanLocalStorageState("svg_cards", true);
 const showCardLabels: State<boolean> =
   booleanLocalStorageState("show_card_labels");
 const showLastTrick: State<boolean> =
   booleanLocalStorageState("show_last_trick");
 const beepOnTurn: State<boolean> = booleanLocalStorageState("beep_on_turn");
+const playAlertSounds: State<boolean> =
+  booleanLocalStorageState("play_alert_sounds");
 const reverseCardOrder: State<boolean> =
   booleanLocalStorageState("reverse_card_order");
 const unsetAutoPlayWhenWinnerChanges: State<boolean> = booleanLocalStorageState(
@@ -68,13 +69,17 @@ const suitColorOverrides: State<ISuitOverrides> = JSONLocalStorageState(
 );
 const playDrawCardSound: State<boolean> = booleanLocalStorageState(
   "play_draw_card_sound",
+  false,
 );
 const showDebugInfo: State<boolean> =
   booleanLocalStorageState("show_debug_info");
 const showPlayerName: State<boolean> = booleanLocalStorageState(
   "show_player_name_in_title",
 );
-const hideChatBox: State<boolean> = booleanLocalStorageState("hide_chat_box");
+const hideChatBox: State<boolean> = booleanLocalStorageState(
+  "hide_chat_box",
+  true,
+);
 const showPointsAboveGame: State<boolean> =
   booleanLocalStorageState("points_above_game");
 export const DEFAULT_POINT_CARD_ICON: string = "💰";
@@ -87,16 +92,13 @@ const trumpCardIcon: State<string> = stringLocalStorageState(
   "trump_card_icon",
   DEFAULT_TRUMP_CARD_ICON,
 );
-const autodrawSpeedMs: State<number | null> = nullableNumberLocalStorageState(
-  "autodrawSpeedMs",
-  null,
-);
 const settings: State<Settings> = combineState({
   fourColor,
   darkMode,
   showCardLabels,
   showLastTrick,
   beepOnTurn,
+  playAlertSounds,
   reverseCardOrder,
   unsetAutoPlayWhenWinnerChanges,
   showTrickInPlayerOrder,
@@ -111,7 +113,6 @@ const settings: State<Settings> = combineState({
   showPointsAboveGame,
   pointCardIcon,
   trumpCardIcon,
-  autodrawSpeedMs,
 });
 
 export default settings;

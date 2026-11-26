@@ -175,7 +175,7 @@ const Cards = (props: IProps): JSX.Element => {
       {props.selectedCards !== undefined ? (
         <div className="selected-cards">
           {selectedCardGroups.map((g, gidx) => (
-            <div style={{ display: "inline-block" }} key={gidx}>
+            <div className="hand-card-group" key={gidx}>
               {g.map((c, idx) => (
                 <Card
                   key={`${gidx}-${idx}`}
@@ -203,7 +203,7 @@ const Cards = (props: IProps): JSX.Element => {
         })}
       >
         {unselectedCardGroups.map((g, gidx) => (
-          <div style={{ display: "inline-block" }} key={gidx}>
+          <div className="hand-card-group" key={gidx}>
             {g.map((c, idx) => (
               <Card
                 key={`${gidx}-${idx}`}

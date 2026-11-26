@@ -170,6 +170,19 @@ const SettingsPane = (props: IProps): JSX.Element => {
           </Cell>
         </Row>
         <Row>
+          <LabelCell>play beep and ready check sounds</LabelCell>
+          <Cell>
+            <input
+              name="play-alert-sounds"
+              type="checkbox"
+              checked={settings.playAlertSounds}
+              onChange={makeChangeHandler({
+                playAlertSounds: !settings.playAlertSounds,
+              })}
+            />
+          </Cell>
+        </Row>
+        <Row>
           <LabelCell>reverse card order (in hand)</LabelCell>
           <Cell>
             <input
@@ -318,27 +331,6 @@ const SettingsPane = (props: IProps): JSX.Element => {
                 showPointsAboveGame: !settings.showPointsAboveGame,
               })}
             />
-          </Cell>
-        </Row>
-        <Row>
-          <LabelCell>autodraw speed</LabelCell>
-          <Cell>
-            <select
-              value={
-                settings.autodrawSpeedMs !== null
-                  ? settings.autodrawSpeedMs
-                  : ""
-              }
-              onChange={(e) =>
-                makeChangeHandler({
-                  autodrawSpeedMs: parseInt(e.target.value),
-                })()
-              }
-            >
-              <option value="250">default</option>
-              <option value="500">slow</option>
-              <option value="10">fast</option>
-            </select>
           </Cell>
         </Row>
       </div>

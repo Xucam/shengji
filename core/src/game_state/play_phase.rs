@@ -63,6 +63,57 @@ pub struct PlayPhase {
     player_requested_reset: Option<PlayerID>,
 }
 
+// A mixed-width train may decompose into several engine units, but every
+// selected rank must be covered by one continuous tractor and share a tuple size.
+fn consecutive_tuple_grouping(cards: &[Card], units: &[TrickUnit]) -> bool {
+    let counts = Card::count(cards.iter().copied());
+    if counts.is_empty() || units.is_empty() {
+        return false;
+    }
+    let gcd = |mut a: usize, mut b: usize| {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    };
+    let mut base = counts.values().copied().fold(0, gcd);
+    let mut grouped = HashMap::new();
+    for unit in units {
+        let count = match unit {
+            TrickUnit::Repeated { count, .. } | TrickUnit::Tractor { count, .. } => *count,
+        };
+        if cards.len() > 1 && count < 2 {
+            return false;
+        }
+        base = gcd(base, count);
+        match unit {
+            TrickUnit::Repeated { card, .. } => *grouped.entry(card.card).or_insert(0) += count,
+            TrickUnit::Tractor { members, .. } => {
+                for member in members {
+                    *grouped.entry(member.card).or_insert(0) += count;
+                }
+            }
+        }
+    }
+    if grouped != counts {
+        return false;
+    }
+    if cards.len() == 1 {
+        return units.len() == 1;
+    }
+    base >= 2
+        && (counts.len() == 1
+            || units.iter().any(|unit| match unit {
+                TrickUnit::Tractor { members, .. } => {
+                    members.len() == counts.len()
+                        && counts
+                            .keys()
+                            .all(|card| members.iter().any(|member| member.card == *card))
+                }
+                TrickUnit::Repeated { .. } => false,
+            }))
+}
+
 impl PlayPhase {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -147,9 +198,24 @@ impl PlayPhase {
         &mut self.propagated
     }
 
+    fn consecutive_tuple_lead(&self, cards: &[Card]) -> Option<Vec<TrickUnit>> {
+        // Engine-produced tractor members establish effective-rank adjacency,
+        // including trump ranks and skipped level cards.
+        TrickUnit::find_plays(
+            self.trump,
+            self.propagated.tractor_requirements,
+            cards.iter().copied(),
+        )
+        .into_iter()
+        .find(|units| consecutive_tuple_grouping(cards, units))
+    }
+
     pub fn can_play_cards(&self, id: PlayerID, cards: &[Card]) -> Result<(), Error> {
         if self.game_ended_early {
             bail!("Game has already ended; cards can't be played");
+        }
+        if self.trick.played_cards().is_empty() && self.consecutive_tuple_lead(cards).is_none() {
+            bail!("Multi-card leads must use consecutive ranks with a shared tuple size of at least 2");
         }
         Ok(self.trick.can_play_cards(
             id,
@@ -177,6 +243,19 @@ impl PlayPhase {
         if self.game_ended_early {
             bail!("Game has already ended; cards can't be played");
         }
+
+        let lead_grouping = if self.trick.played_cards().is_empty() {
+            let Some(grouping) = self.consecutive_tuple_lead(cards) else {
+                bail!("Multi-card leads must use consecutive ranks with a shared tuple size of at least 2");
+            };
+            if format_hint.is_some_and(|hint| !consecutive_tuple_grouping(cards, hint)) {
+                bail!("The proposed grouping does not match the lead");
+            }
+            Some(grouping)
+        } else {
+            None
+        };
+        let format_hint = format_hint.or(lead_grouping.as_deref());
 
         let mut msgs = self.trick.play_cards(PlayCards {
             id,
@@ -612,6 +691,13 @@ impl PlayPhase {
             self.propagated.jack_variation,
         ));
 
+        propagated.previous_winners = propagated
+            .players
+            .iter()
+            .filter(|p| landlord_won == self.landlords_team.contains(&p.id))
+            .map(|p| p.id)
+            .collect();
+
         let mut idx = (landlord_idx + 1) % propagated.players.len();
         let (next_landlord, next_landlord_idx) = loop {
             if landlord_won == self.landlords_team.contains(&propagated.players[idx].id) {
@@ -690,6 +776,182 @@ impl PlayPhase {
             for card in &mut self.kitty {
                 *card = Card::Unknown;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod lead_rule_tests {
+    use super::*;
+    use shengji_mechanics::types::{cards::*, Number, Suit};
+
+    fn play(lead: &[Card]) -> PlayPhase {
+        let mut propagated = PropagatedState::default();
+        let mut ids = vec![];
+        for name in ["Alice", "Bob", "Carol", "Dave"] {
+            ids.push(propagated.add_player(name.to_owned()).unwrap().0);
+        }
+        let trump = Trump::Standard {
+            number: Number::Two,
+            suit: Suit::Spades,
+        };
+        let mut hands = Hands::new(ids.iter().copied());
+        hands.set_trump(trump);
+        hands.add(ids[0], lead.iter().copied()).unwrap();
+        for id in &ids[1..] {
+            hands.add(*id, [H_3, H_4, H_7, H_8, H_9]).unwrap();
+        }
+        PlayPhase::new(
+            propagated,
+            8,
+            GameMode::Tractor,
+            hands,
+            vec![],
+            trump,
+            ids[0],
+            ids[0],
+            vec![ids[0], ids[2]],
+            vec![],
+            vec![Deck::default(); 8],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn rejects_singletons_gaps_and_incompatible_widths_without_changing_state() {
+        for cards in [
+            vec![H_5, H_6],
+            vec![H_A, H_K, H_K, H_Q, H_Q],
+            vec![H_J, H_J, H_9, H_9, H_8, H_8],
+            vec![H_5, H_5, H_6, H_6, H_7],
+            vec![H_5, H_5, H_9, H_9],
+            vec![H_Q, H_Q, H_Q, H_Q, H_J, H_J, H_J],
+            vec![H_5, H_5, H_5, H_6, H_6],
+            vec![H_7, H_7, H_7, H_6, H_6, H_6, H_6, H_6, H_6, H_5, H_5],
+        ] {
+            let mut game = play(&cards);
+            let before = serde_json::to_value(&game).unwrap();
+            assert!(game.can_play_cards(PlayerID(0), &cards).is_err());
+            assert!(game.play_cards(PlayerID(0), &cards).is_err());
+            assert_eq!(serde_json::to_value(&game).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn permits_single_cards_identical_groups_and_tractors() {
+        play(&[H_8, H_8, H_8, H_8, H_8, H_7, H_7, H_7, H_7, H_7])
+            .play_cards(
+                PlayerID(0),
+                &[H_8, H_8, H_8, H_8, H_8, H_7, H_7, H_7, H_7, H_7],
+            )
+            .unwrap();
+        for cards in [
+            vec![H_5],
+            vec![H_5, H_5],
+            vec![H_5, H_5, H_5],
+            vec![H_5, H_5, H_5, H_5],
+            vec![H_5, H_5, H_6, H_6],
+            vec![H_6, H_6, H_6, H_5, H_5, H_5, H_4, H_4, H_4],
+        ] {
+            play(&cards).play_cards(PlayerID(0), &cards).unwrap();
+        }
+    }
+
+    fn assert_legal_mixed_width_train(cards: &[Card], hint: &[TrickUnit]) {
+        for with_hint in [false, true] {
+            let mut game = play(cards);
+            assert!(game.can_play_cards(PlayerID(0), cards).is_ok());
+            if with_hint {
+                game.play_cards_with_hint(PlayerID(0), cards, Some(hint))
+                    .unwrap();
+            } else {
+                game.play_cards(PlayerID(0), cards).unwrap();
+            }
+            assert_eq!(game.trick.played_cards()[0].cards.len(), cards.len());
+        }
+    }
+
+    fn ordered(card: Card) -> shengji_mechanics::ordered_card::OrderedCard {
+        shengji_mechanics::ordered_card::OrderedCard {
+            card,
+            trump: Trump::Standard {
+                number: Number::Two,
+                suit: Suit::Spades,
+            },
+        }
+    }
+
+    #[test]
+    fn mixed_width_qqqqjjtt_is_legal() {
+        assert_legal_mixed_width_train(
+            &[H_Q, H_Q, H_Q, H_Q, H_J, H_J, H_10, H_10],
+            &[
+                TrickUnit::Tractor {
+                    count: 2,
+                    members: vec![ordered(H_10), ordered(H_J), ordered(H_Q)],
+                },
+                TrickUnit::Repeated {
+                    count: 2,
+                    card: ordered(H_Q),
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn mixed_width_777777666_is_legal() {
+        assert_legal_mixed_width_train(
+            &[H_7, H_7, H_7, H_7, H_7, H_7, H_6, H_6, H_6],
+            &[
+                TrickUnit::Tractor {
+                    count: 3,
+                    members: vec![ordered(H_6), ordered(H_7)],
+                },
+                TrickUnit::Repeated {
+                    count: 3,
+                    card: ordered(H_7),
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn mixed_width_777777665555_is_legal() {
+        assert_legal_mixed_width_train(
+            &[H_7, H_7, H_7, H_7, H_7, H_7, H_6, H_6, H_5, H_5, H_5, H_5],
+            &[
+                TrickUnit::Tractor {
+                    count: 2,
+                    members: vec![ordered(H_5), ordered(H_6), ordered(H_7)],
+                },
+                TrickUnit::Repeated {
+                    count: 2,
+                    card: ordered(H_5),
+                },
+                TrickUnit::Repeated {
+                    count: 4,
+                    card: ordered(H_7),
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn following_a_pair_with_singles_is_still_allowed_when_no_pair_is_available() {
+        let mut game = play(&[H_5, H_5]);
+        game.play_cards(PlayerID(0), &[H_5, H_5]).unwrap();
+        game.play_cards(PlayerID(1), &[H_3, H_4]).unwrap();
+        assert_eq!(game.trick.played_cards().len(), 2);
+    }
+
+    #[test]
+    fn explicit_hints_cannot_bypass_nonconsecutive_lead_restriction() {
+        let cards = [H_5, H_5, H_9, H_9];
+        let mut game = play(&cards);
+        for hint in TrickUnit::find_plays(game.trump, game.propagated.tractor_requirements, cards) {
+            assert!(game
+                .play_cards_with_hint(PlayerID(0), &cards, Some(&hint))
+                .is_err());
         }
     }
 }

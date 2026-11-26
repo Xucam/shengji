@@ -52,13 +52,16 @@ impl GameMode {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum GameModeSettings {
-    #[default]
     Tractor,
-    FindingFriends {
-        num_friends: Option<usize>,
-    },
+    FindingFriends { num_friends: Option<usize> },
+}
+
+impl Default for GameModeSettings {
+    fn default() -> Self {
+        Self::FindingFriends { num_friends: None }
+    }
 }
 
 impl GameModeSettings {
@@ -256,6 +259,11 @@ pub struct PropagatedState {
     #[serde(default)]
     pub(crate) num_games_finished: usize,
 
+    /// Players eligible to become landlord after bidding in the next round.
+    #[slog(skip)]
+    #[serde(default)]
+    pub(crate) previous_winners: Vec<PlayerID>,
+
     pub(crate) game_mode: GameModeSettings,
     #[serde(default)]
     pub(crate) hide_landlord_points: bool,
@@ -342,7 +350,7 @@ impl PropagatedState {
     }
 
     pub fn num_decks(&self) -> usize {
-        self.num_decks.unwrap_or(self.players.len() / 2)
+        self.num_decks.unwrap_or(4)
     }
 
     pub fn game_visibility(&self) -> GameVisibility {
@@ -372,7 +380,8 @@ impl PropagatedState {
 
     fn num_players_changed(&mut self) -> Result<Vec<MessageVariant>, Error> {
         let mut msgs = vec![];
-        msgs.extend(self.set_num_decks(None)?);
+        // Deck count is independent of player count; preserve the lobby choice.
+        msgs.extend(self.set_kitty_size(None)?);
 
         if let GameModeSettings::FindingFriends {
             ref mut num_friends,
@@ -494,8 +503,8 @@ impl PropagatedState {
         if num_decks == Some(0) {
             bail!("At least one deck is necessary to play the game")
         }
-        if num_decks.unwrap_or(0) > self.players.len() * 2 {
-            bail!("Using more than two decks per player is not supported");
+        if num_decks.unwrap_or(0) > (self.players.len() + 1).max(4) {
+            bail!("Using more than four decks or one more deck than players is not supported");
         }
         let mut msgs = vec![];
         if self.num_decks != num_decks {
@@ -943,5 +952,57 @@ impl PropagatedState {
         } else {
             Ok(vec![])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PropagatedState;
+
+    #[test]
+    fn default_is_four_decks_regardless_of_player_count() {
+        let mut state = PropagatedState::default();
+        assert_eq!(state.num_decks(), 4);
+        for i in 0..8 {
+            state.add_player(format!("Player {i}")).unwrap();
+            assert_eq!(state.num_decks(), 4);
+        }
+    }
+
+    #[test]
+    fn one_to_four_decks_can_be_selected_before_players_join() {
+        for count in 1..=4 {
+            let mut state = PropagatedState::default();
+            state.set_num_decks(Some(count)).unwrap();
+            assert_eq!(state.num_decks(), count);
+            for i in 0..4 {
+                state.add_player(format!("Player {i}")).unwrap();
+                assert_eq!(state.num_decks(), count);
+                assert_eq!(state.num_decks, Some(count));
+            }
+            state.set_num_decks(None).unwrap();
+            assert_eq!(state.num_decks(), 4);
+        }
+    }
+
+    #[test]
+    fn allows_one_more_deck_than_players() {
+        for players in [4, 6, 8] {
+            let mut state = PropagatedState::default();
+            for i in 0..players {
+                state.add_player(format!("Player {i}")).unwrap();
+            }
+            state.set_num_decks(Some(players + 1)).unwrap();
+            assert_eq!(state.num_decks(), players + 1);
+            assert!(state.set_num_decks(Some(players + 2)).is_err());
+        }
+    }
+
+    #[test]
+    fn deck_count_still_has_bounds() {
+        let mut state = PropagatedState::default();
+        assert!(state.set_num_decks(Some(0)).is_err());
+        assert!(state.set_num_decks(Some(5)).is_err());
+        assert_eq!(state.num_decks(), 4);
     }
 }
